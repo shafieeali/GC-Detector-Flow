@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Detector response vs. carrier flow: FID and TCD (CHM4130 PS4, Problem 23)</title>
+<style>
+:root{--ink:#1f2d3a;--navy:#163e63;--steel:#326b9e;--muted:#566676;--rule:#cfdbe6;--panel:#f1f5f9;--bg:#ffffff;--grid:#e6edf3;--fid:#1f5f99;--tcd:#8a4a9e;--fill-fid:rgba(31,95,153,.16);--fill-tcd:rgba(138,74,158,.16);color-scheme:light}
+@media (prefers-color-scheme:dark){:root{--ink:#e3eaf1;--navy:#a9cdf0;--steel:#7fb0dc;--muted:#9fb0c0;--rule:#34475a;--panel:#17232f;--bg:#0f1820;--grid:#1f2e3b;--fid:#86b8ec;--tcd:#cf9be0;--fill-fid:rgba(134,184,236,.18);--fill-tcd:rgba(207,155,224,.18);color-scheme:dark}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 Arial,Helvetica,sans-serif}
+main{max-width:920px;margin:0 auto;padding:22px 18px 34px}
+h1{font-size:1.45rem;color:var(--navy);margin:0 0 2px}
+.src{margin:0 0 14px;color:var(--muted);font-size:.9rem}
+.lede{margin:0 0 10px;max-width:72ch}
+.controls{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;margin:10px 0}
+.controls label{font-size:.95rem;min-width:15em}
+input[type=range]{width:min(340px,100%);accent-color:var(--steel)}
+output{font-weight:700;font-variant-numeric:tabular-nums;min-width:5em}
+button{font:inherit;font-size:.9rem;padding:5px 11px;border:1px solid var(--steel);border-radius:4px;background:transparent;color:var(--navy);cursor:pointer}
+button:hover{background:var(--panel)}
+:focus-visible{outline:2px solid var(--steel);outline-offset:2px}
+.readout{display:flex;flex-wrap:wrap;margin:12px 0;border-top:1px solid var(--rule);border-bottom:1px solid var(--rule)}
+.readout div{padding:8px 18px 8px 0;margin-right:18px;border-right:1px solid var(--rule)}
+.readout div:last-child{border-right:0;margin-right:0}
+.readout span{display:block;font-size:.8rem;color:var(--muted)}
+.readout b{font-size:1.08rem;font-variant-numeric:tabular-nums}
+.chart{overflow-x:auto;margin-top:6px}
+.chart svg{min-width:640px}
+svg{display:block;width:100%;height:auto}
+.ax{stroke:var(--muted);stroke-width:1}
+.gl{stroke:var(--grid);stroke-width:1}
+.tk{fill:var(--muted);font-size:12px}
+.axt{fill:var(--ink);font-size:13px}
+.halo{paint-order:stroke;stroke:var(--bg);stroke-width:4px;stroke-linejoin:round}
+.legend{display:flex;flex-wrap:wrap;gap:6px 22px;font-size:.88rem;color:var(--muted);margin-top:6px}
+.sw{display:inline-block;width:24px;vertical-align:middle;margin-right:6px}
+.summary{border-left:3px solid var(--steel);background:var(--panel);padding:10px 14px;margin:12px 0;max-width:80ch}
+.summary p{margin:0}
+.note{font-size:.9rem;color:var(--muted);max-width:76ch}
+</style>
+</head>
+<body>
+<main>
+<h1>Detector response vs. carrier flow: FID and TCD</h1>
+<p class="src">CHM4130 Practice Problem Set 4, Problem 23</p>
+<p class="lede">The same amount of sample is injected every time. Slide the carrier gas flow and compare how the peak height and peak area change on a mass-sensitive detector (FID) and a concentration-sensitive detector (TCD).</p>
+
+<div class="controls">
+  <label for="flow">Carrier gas flow</label>
+  <input type="range" id="flow" min="-1" max="1" step="0.01" value="0" aria-valuetext="1.00 times the original flow">
+  <output id="flowOut" for="flow">1.00F</output>
+</div>
+<div class="controls">
+  <button type="button" data-f="0.5">0.5F (half the flow)</button>
+  <button type="button" data-f="1">F (original)</button>
+  <button type="button" data-f="2">2F (Problem 23c)</button>
+</div>
+
+<div class="chart"><svg id="plot" viewBox="0 0 820 350" role="img" aria-label="Simulated FID and TCD peaks at the chosen flow, with the peak at the original flow for comparison"></svg></div>
+<div class="legend">
+  <span><i class="sw" style="border-top:2px dashed var(--muted)"></i>Peak at the original flow F</span>
+  <span><i class="sw" style="height:12px;background:var(--fill-fid);border-top:3px solid var(--fid)"></i>Peak at your flow; the shading is its area</span>
+</div>
+
+<div class="readout" aria-live="polite">
+  <div><span>Retention time</span><b id="rT"></b></div>
+  <div><span>Peak width at half height</span><b id="rW"></b></div>
+  <div><span>FID height / area</span><b id="rF"></b></div>
+  <div><span>TCD height / area</span><b id="rC"></b></div>
+</div>
+<div class="summary" aria-live="polite"><p id="sum"></p></div>
+
+<p class="note">Heights and areas are given relative to the run at flow F. The same mass is injected in every run, and retention time and peak width both scale as 1/F. A mass-sensitive detector responds to the grams per second reaching it, so its peak height follows the flow while its area stays fixed. A concentration-sensitive detector responds to the grams per mL in its cell, so its peak height stays fixed while its area follows the peak’s width in time.</p>
+</main>
+
+<script>
+(function(){
+  var NS='http://www.w3.org/2000/svg';
+  function el(tag,attrs,text){var e=document.createElementNS(NS,tag);for(var k in attrs)e.setAttribute(k,attrs[k]);if(text!=null)e.textContent=text;return e;}
+  var T0=4.0,FW0=0.9,S0=FW0/2.35482,XMAX=12,YMAX=2.3;
+  var W=820,H=350,PT=50,PB=50;
+  var PANELS=[
+    {x0:62,x1:392,name:'FID (mass-sensitive)',col:'var(--fid)',fill:'var(--fill-fid)',h:function(f){return f;}},
+    {x0:474,x1:804,name:'TCD (concentration-sensitive)',col:'var(--tcd)',fill:'var(--fill-tcd)',h:function(f){return 1;}}
+  ];
+  var flow=document.getElementById('flow'),svg=document.getElementById('plot');
+  function Y(v){return H-PB-v/YMAX*(H-PT-PB);}
+  function x2(v){return v.toFixed(2)+'×';}
+  function draw(){
+    var f=Math.pow(2,+flow.value);
+    if(Math.abs(f-1)<0.006)f=1;
+    var tR=T0/f,s=S0/f;
+    document.getElementById('flowOut').textContent=f.toFixed(2)+'F';
+    flow.setAttribute('aria-valuetext',f.toFixed(2)+' times the original flow');
+    while(svg.firstChild)svg.removeChild(svg.firstChild);
+    PANELS.forEach(function(P,idx){
+      function X(t){return P.x0+t/XMAX*(P.x1-P.x0);}
+      var t,v;
+      for(t=0;t<=XMAX;t+=2){
+        svg.appendChild(el('line',{x1:X(t),y1:PT,x2:X(t),y2:H-PB,'class':'gl'}));
+        svg.appendChild(el('text',{x:X(t),y:H-PB+19,'text-anchor':'middle','class':'tk'},String(t)));
+      }
+      for(v=0.5;v<=2.0+1e-9;v+=0.5){
+        svg.appendChild(el('line',{x1:P.x0,y1:Y(v),x2:P.x1,y2:Y(v),'class':'gl'}));
+        svg.appendChild(el('text',{x:P.x0-6,y:Y(v)+4,'text-anchor':'end','class':'tk'},v.toFixed(1)+'×'));
+      }
+      svg.appendChild(el('line',{x1:P.x0,y1:H-PB,x2:P.x1,y2:H-PB,'class':'ax'}));
+      svg.appendChild(el('line',{x1:P.x0,y1:PT,x2:P.x0,y2:H-PB,'class':'ax'}));
+      svg.appendChild(el('text',{x:P.x0,y:24,'font-size':14,'font-weight':'bold',fill:P.col},P.name));
+      svg.appendChild(el('text',{x:(P.x0+P.x1)/2,y:H-12,'text-anchor':'middle','class':'axt'},'Time (min)'));
+      if(idx===0)svg.appendChild(el('text',{transform:'translate(16,'+((PT+H-PB)/2)+') rotate(-90)','text-anchor':'middle','class':'axt'},'Peak height'));
+      function peak(tc,sg,ht){
+        var d='';for(var i=0;i<=500;i++){var tt=XMAX*i/500;var y=ht*Math.exp(-0.5*Math.pow((tt-tc)/sg,2));d+=(d?'L':'M')+X(tt).toFixed(1)+' '+Y(y).toFixed(1);}
+        return d;
+      }
+      var ht=P.h(f),cur=peak(tR,s,ht);
+      svg.appendChild(el('path',{d:cur+'L'+X(XMAX)+' '+Y(0)+'L'+X(0)+' '+Y(0)+'Z',fill:P.fill,stroke:'none'}));
+      svg.appendChild(el('path',{d:peak(T0,S0,1),fill:'none',stroke:'var(--muted)','stroke-width':1.6,'stroke-dasharray':'5 4'}));
+      svg.appendChild(el('path',{d:cur,fill:'none',stroke:P.col,'stroke-width':2.6}));
+      var area=idx===0?1:1/f;
+      svg.appendChild(el('text',{x:P.x1-6,y:PT-10,'text-anchor':'end','font-size':12.5,'font-weight':'bold',fill:P.col},'height '+ht.toFixed(2)+'×, area '+area.toFixed(2)+'×'));
+    });
+    document.getElementById('rT').textContent=tR.toFixed(1)+' min';
+    document.getElementById('rW').textContent=(FW0/f).toFixed(2)+' min';
+    document.getElementById('rF').textContent=x2(f)+' / 1.00×';
+    document.getElementById('rC').textContent='1.00× / '+x2(1/f);
+    var sum;
+    if(f===1){sum='This is the reference run at flow F: the peak elutes at 4.0 min. Choose 2F to answer Problem 23(c), or slide the flow either way.';}
+    else{
+      var faster=f>1;
+      sum='At '+f.toFixed(2)+'F the peak elutes at '+tR.toFixed(1)+' min, and its width is '+x2(1/f)+' the width at F. '
+        +'The FID peak is '+x2(f)+' as tall with the same area, because the same mass now passes the detector '+(faster?'faster':'more slowly')+'. '
+        +'The TCD peak keeps its height, because the concentration in the cell is unchanged, but its area '+(faster?'falls':'rises')+' to '+x2(1/f)+' because the peak lasts '+(faster?'a shorter':'a longer')+' time.';
+    }
+    document.getElementById('sum').textContent=sum;
+  }
+  flow.addEventListener('input',draw);
+  document.querySelectorAll('button[data-f]').forEach(function(b){b.addEventListener('click',function(){flow.value=Math.log2(+b.getAttribute('data-f'));draw();});});
+  draw();
+})();
+</script>
+</body>
+</html>
